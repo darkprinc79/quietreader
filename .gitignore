@@ -1,0 +1,13 @@
+.gradle/
+local.properties
+*.iml
+*.apk
+*.aab
+/app/build/
+/build/
+/linux/build/
+/linux/pkgbuild/src/
+/linux/pkgbuild/pkg/
+/linux/pkgbuild/*.tar.gz
+/linux/pkgbuild/*.pkg.tar.*
+/linux/pkgbuild/*.log

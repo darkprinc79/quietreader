@@ -1,0 +1,22 @@
+pkgname=quietreader
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='A calm, adjustable plain text reader'
+arch=('x86_64' 'aarch64')
+license=('MIT')
+depends=('qt6-base' 'qt6-declarative')
+makedepends=('qt6-base')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('ec6896c334dd8d9dbe0261ea32a7dc58a06782ee28bbdc7207d996633490f8c0')
+
+build() {
+  cd "$srcdir/quietreader"
+  qmake6 quietreader.pro
+  make
+}
+
+package() {
+  install -Dm755 "$srcdir/quietreader/quietreader" "$pkgdir/usr/bin/quietreader"
+  install -Dm644 "$srcdir/quietreader/pkgbuild/quietreader.desktop" "$pkgdir/usr/share/applications/quietreader.desktop"
+  install -Dm644 "$srcdir/quietreader/pkgbuild/quietreader.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/quietreader.svg"
+}

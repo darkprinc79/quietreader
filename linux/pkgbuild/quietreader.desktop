@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Quiet Reader
+Comment=Read plain text with a calm, adjustable display
+Exec=quietreader
+Icon=quietreader
+Terminal=false
+Type=Application
+Categories=Utility;Office;Viewer;
+Keywords=reader;text;txt;book;

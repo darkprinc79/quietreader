@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+app_dir="$(cd "$(dirname "$0")/.." && pwd)"
+pkg_dir="$app_dir/pkgbuild"
+archive="$pkg_dir/quietreader-1.0.0.tar.gz"
+tar -czf "$archive" -C "$app_dir" --exclude='pkgbuild/*.tar.gz' --exclude='pkgbuild/*.pkg.tar.*' --transform='s,^,quietreader/,' quietreader.pro src pkgbuild bin
+digest="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+sed -i "s/^sha256sums=.*/sha256sums=('${digest}')/" "$pkg_dir/PKGBUILD"
+cd "$pkg_dir"
+makepkg -sf
