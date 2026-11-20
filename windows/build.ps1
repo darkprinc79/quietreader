@@ -19,6 +19,10 @@ Push-Location $buildDir
 try {
     & qmake $project 'CONFIG+=release' 'CONFIG-=debug_and_release'
     if ($LASTEXITCODE -ne 0) { throw "qmake failed with exit code $LASTEXITCODE" }
+    $makefile = Join-Path $buildDir 'Makefile'
+    $makefileText = [System.IO.File]::ReadAllText($makefile)
+    $makefileText = $makefileText.Replace('2>NUL >moc_predefs.h', '>moc_predefs.h')
+    [System.IO.File]::WriteAllText($makefile, $makefileText)
     & nmake
     if ($LASTEXITCODE -ne 0) { throw "nmake failed with exit code $LASTEXITCODE" }
 } finally {
