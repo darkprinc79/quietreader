@@ -5,4 +5,5 @@ TARGET = quietreader
 SOURCES += src/main.cpp src/librarymodel.cpp src/theme.cpp
 HEADERS += src/librarymodel.h src/theme.h
 RESOURCES += src/resources.qrc
-QMAKE_CXXFLAGS += -Wall -Wextra
+gcc|clang: QMAKE_CXXFLAGS += -Wall -Wextra
+msvc: QMAKE_CXXFLAGS += /W4
