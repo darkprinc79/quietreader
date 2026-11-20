@@ -18,8 +18,9 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty(QStringLiteral("theme"), &theme);
     engine.load(QUrl(QStringLiteral("qrc:/Main.qml")));
     if (engine.rootObjects().isEmpty()) return 1;
-    if (argc > 1) {
-        const QString path = QString::fromLocal8Bit(argv[1]);
+    const QStringList arguments = app.arguments();
+    if (arguments.size() > 1) {
+        const QString path = arguments.at(1);
         if (QFileInfo(path).isDir()) library.setRoot(path);
         else library.openDocument(path);
     }

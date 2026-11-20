@@ -16,6 +16,10 @@ Open this directory in Android Studio with Android SDK 34 installed, or build wi
 
 The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
+## Windows desktop version
+
+The Linux and Windows desktops use the same Qt source. Windows builds require Qt 6.8.3 for MSVC 2022 x64 and Visual Studio Build Tools. Run `windows/build.ps1` from a Visual Studio Developer PowerShell to create `windows/quietreader-windows-x64.zip`. The GitHub Actions workflow also builds this bundle on pushes to `main` and publishes it as a downloadable workflow artifact.
+
 ## Linux desktop version
 
 The native Linux app is in `linux/`. It uses Qt 6 and qmake, with a two-pane library tree and reader, and adjustable text size and color. It starts with the home folder in the tree, accepts folder and file paths directly, detects text by file contents regardless of filename extension, and supports UTF-8 and UTF-16. Build it with:

@@ -1,2 +1,5 @@
 /build/
 *.user
+/windows/build/
+/windows/dist/
+/windows/*.zip

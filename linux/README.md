@@ -25,3 +25,5 @@ The default reader uses dim gray text on black. The `Aa` menu changes text size 
 | Ctrl+Q | Quit |
 
 On Arch Linux, `./bin/package` builds a package with `makepkg`; installing it is left to the user.
+
+The same Qt source also builds on Windows. See `../windows/README.md` for the MSVC 2022 build and deployment steps.
