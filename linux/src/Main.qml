@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
 ApplicationWindow {
     id: window
@@ -18,22 +19,11 @@ ApplicationWindow {
     property int readerSize: 20
     property color readerColor: "#bebebe"
 
-    Dialog {
+    FolderDialog {
         id: folderDialog
-        objectName: "folderPathDialog"
         title: qsTr("Choose a library folder")
-        modal: true
-        anchors.centerIn: parent
-        width: 500
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        onOpened: folderPath.text = library.rootPath
-        onAccepted: library.setRoot(folderPath.text)
-        contentItem: ColumnLayout {
-            implicitWidth: 460
-            Label { text: qsTr("Folder path") }
-            TextField { id: folderPath; objectName: "folderPathField"; Layout.fillWidth: true; placeholderText: qsTr("For example: ~/Documents") }
-            Label { text: qsTr("The home folder is shown when Quiet Reader starts."); color: "#999999"; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-        }
+        currentFolder: StandardPaths.standardLocations(StandardPaths.HomeLocation)[0]
+        onAccepted: library.setRootUrl(selectedFolder)
     }
     Dialog {
         id: fileDialog
@@ -68,7 +58,7 @@ ApplicationWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     Label { text: qsTr("Library"); font.bold: true; font.pixelSize: 18; Layout.fillWidth: true }
-                    ToolButton { text: "＋"; Accessible.name: qsTr("Choose library folder"); onClicked: directoryDialog.open() }
+                    ToolButton { text: qsTr("Choose folder"); Accessible.name: qsTr("Choose library folder"); onClicked: folderDialog.open() }
                 }
                 Label {
                     Layout.fillWidth: true

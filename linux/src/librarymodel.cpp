@@ -60,6 +60,14 @@ void LibraryModel::setRoot(const QString &path) {
     m_root = canonical; m_expanded.clear(); m_expanded.insert(canonical); m_error.clear();
     emit errorChanged(); emit rootPathChanged(); rebuild();
 }
+void LibraryModel::setRootUrl(const QUrl &url) {
+    if (!url.isLocalFile()) {
+        m_error = tr("The selected folder is not a local folder: %1").arg(url.toString());
+        emit errorChanged();
+        return;
+    }
+    setRoot(url.toLocalFile());
+}
 void LibraryModel::toggle(const QString &path) {
     if (m_expanded.contains(path)) m_expanded.remove(path); else m_expanded.insert(path);
     rebuild();

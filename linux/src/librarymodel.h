@@ -3,6 +3,7 @@
 #include <QAbstractListModel>
 #include <QSet>
 #include <QStringList>
+#include <QUrl>
 
 class LibraryModel final : public QAbstractListModel {
     Q_OBJECT
@@ -21,6 +22,7 @@ public:
     QString documentText() const { return m_text; }
     QString error() const { return m_error; }
     Q_INVOKABLE void setRoot(const QString &path);
+    Q_INVOKABLE void setRootUrl(const QUrl &url);
     Q_INVOKABLE void toggle(const QString &path);
     Q_INVOKABLE void openDocument(const QString &path);
 signals:
