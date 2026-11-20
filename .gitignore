@@ -11,3 +11,6 @@ local.properties
 /linux/pkgbuild/*.tar.gz
 /linux/pkgbuild/*.pkg.tar.*
 /linux/pkgbuild/*.log
+/windows/build/
+/windows/dist/
+/windows/*.zip
