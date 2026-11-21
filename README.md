@@ -3,7 +3,7 @@ https://github.com/darkprinc79/quietreader/blob/main/quietreader.png
 
 # Quiet Reader
 
-A simple tablet-oriented Android text reader. It uses Android's system folder picker, shows folders and readable files in a left sidebar, and displays the selected file in a scrollable reading pane. Supported files are `.txt` files and names without an extension. Reading appearance includes adjustable text size and dim white, white, warm, and green text on black.
+Quiet Reader is a text reader for Android 5.0 and later, Windows, and Linux. The Android app uses the system folder picker to open a directory, lists its folders and readable files in a compact sidebar, and displays the selected file in a scrollable reading pane. It supports `.txt` files and files without an extension, with adjustable text size and dim white, white, warm, or green text on black.
 
 ## Android compatibility
 
