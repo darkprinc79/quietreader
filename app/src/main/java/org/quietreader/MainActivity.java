@@ -25,9 +25,7 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /** A small, native Android 5+ text reader with a directory tree sidebar. */
 public class MainActivity extends Activity {
@@ -38,10 +36,13 @@ public class MainActivity extends Activity {
 
     private LinearLayout tree, sidebar;
     private TextView page, title, folderLabel;
+    private Button upButton;
     private ScrollView readerScroll;
     private Uri rootUri;
+    private Uri currentDirectoryUri;
+    private final List<Uri> directoryStack = new ArrayList<>();
     private int textColor, textSize;
-    private final Set<String> expanded = new HashSet<>();
+    private boolean compactSidebar;
     private int pad;
 
     @Override public void onCreate(Bundle state) {
@@ -51,7 +52,11 @@ public class MainActivity extends Activity {
         textColor = getPreferences(0).getInt("color", DEFAULT_TEXT);
         textSize = getPreferences(0).getInt("size", 20);
         String saved = getPreferences(0).getString("folder", null);
-        if (saved != null) rootUri = Uri.parse(saved);
+        if (saved != null) {
+            rootUri = Uri.parse(saved);
+            currentDirectoryUri = rootUri;
+            directoryStack.add(rootUri);
+        }
         buildUi();
         if (rootUri != null) refreshTree();
         else showWelcome();
@@ -59,12 +64,23 @@ public class MainActivity extends Activity {
 
     private void buildUi() {
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.HORIZONTAL); root.setBackgroundColor(BG);
-        sidebar = new LinearLayout(this); sidebar.setOrientation(LinearLayout.VERTICAL); sidebar.setPadding(pad / 2, pad / 2, pad / 2, pad / 2); sidebar.setBackgroundColor(Color.rgb(15,15,15));
+        int screenWidthDp = (int) (getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density);
+        compactSidebar = screenWidthDp < 600;
+        int sidebarWidthDp = compactSidebar ? Math.min(160, Math.max(136, (int) (screenWidthDp * 0.38f))) : 280;
+        int sidebarPadding = compactSidebar ? dp(4) : pad / 2;
+        sidebar = new LinearLayout(this); sidebar.setOrientation(LinearLayout.VERTICAL); sidebar.setPadding(sidebarPadding, sidebarPadding, sidebarPadding, sidebarPadding); sidebar.setBackgroundColor(Color.rgb(15,15,15));
         LinearLayout top = new LinearLayout(this); top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
-        folderLabel = label("Library", 16, Color.WHITE); folderLabel.setTypeface(null, Typeface.BOLD);
-        Button choose = button("Open folder"); choose.setOnClickListener(v -> pickFolder());
-        top.addView(folderLabel, new LinearLayout.LayoutParams(0, -2, 1)); top.addView(choose);
+        Button choose = button(compactSidebar ? "Open" : "Open folder");
+        choose.setContentDescription("Choose library folder");
+        choose.setOnClickListener(v -> pickFolder());
+        upButton = button("Up");
+        upButton.setOnClickListener(v -> navigateUp());
+        top.addView(choose, new LinearLayout.LayoutParams(0, dp(42), 1));
+        top.addView(upButton, new LinearLayout.LayoutParams(0, dp(42), 1));
         sidebar.addView(top);
+        folderLabel = label("Choose folder", compactSidebar ? 12 : 14, Color.LTGRAY);
+        folderLabel.setSingleLine(true);
+        sidebar.addView(folderLabel, new LinearLayout.LayoutParams(-1, dp(32)));
         ScrollView treeScroll = new ScrollView(this); tree = new LinearLayout(this); tree.setOrientation(LinearLayout.VERTICAL); treeScroll.addView(tree);
         sidebar.addView(treeScroll, new LinearLayout.LayoutParams(-1, 0, 1));
         View divider = new View(this); divider.setBackgroundColor(Color.rgb(55,55,55));
@@ -77,7 +93,7 @@ public class MainActivity extends Activity {
         page = label("Choose a folder, then select a text file from the library.", textSize, textColor); page.setGravity(Gravity.TOP | Gravity.START); page.setPadding(pad * 2, pad, pad * 2, pad * 2); page.setTextIsSelectable(true); page.setTextSize(textSize);
         readerScroll.addView(page);
         content.addView(toolbar); content.addView(readerScroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        root.addView(sidebar, new LinearLayout.LayoutParams(dp(280), -1)); root.addView(divider, new LinearLayout.LayoutParams(dp(1), -1)); root.addView(content, new LinearLayout.LayoutParams(0, -1, 1));
+        root.addView(sidebar, new LinearLayout.LayoutParams(dp(sidebarWidthDp), -1)); root.addView(divider, new LinearLayout.LayoutParams(dp(1), -1)); root.addView(content, new LinearLayout.LayoutParams(0, -1, 1));
         setContentView(root);
     }
 
@@ -92,34 +108,46 @@ public class MainActivity extends Activity {
         if (requestCode == PICK_FOLDER && resultCode == RESULT_OK && data != null) {
             rootUri = data.getData();
             try { getContentResolver().takePersistableUriPermission(rootUri, data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) { }
-            getPreferences(0).edit().putString("folder", rootUri.toString()).apply(); expanded.clear(); refreshTree();
+            getPreferences(0).edit().putString("folder", rootUri.toString()).apply();
+            directoryStack.clear();
+            directoryStack.add(rootUri);
+            currentDirectoryUri = rootUri;
+            refreshTree();
         }
     }
     private void refreshTree() {
         tree.removeAllViews();
         if (rootUri == null) return;
-        String name = displayName(rootUri);
-        addDirectory(rootUri, name, 0);
-        folderLabel.setText("Library");
-    }
-    private void addDirectory(Uri uri, String name, int depth) {
-        String key = uri.toString();
-        boolean open = depth == 0 || expanded.contains(key);
-        LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL); row.setOrientation(LinearLayout.HORIZONTAL);
-        TextView toggle = label(open ? "▾" : "▸", 18, Color.LTGRAY); toggle.setGravity(Gravity.CENTER); row.addView(toggle, new LinearLayout.LayoutParams(dp(30), dp(44)));
-        TextView dir = label(name, 15, Color.rgb(205,205,205)); dir.setSingleLine(true); row.addView(dir, new LinearLayout.LayoutParams(-1, dp(44)));
-        row.setPadding(depth * dp(14), 0, 0, 0); row.setOnClickListener(v -> { if (depth == 0 || expanded.remove(key) == false) expanded.add(key); refreshTree(); }); tree.addView(row);
-        if (!open) return;
-        List<Entry> entries = list(uri);
+        if (currentDirectoryUri == null) currentDirectoryUri = rootUri;
+        folderLabel.setText(displayName(currentDirectoryUri));
+        upButton.setEnabled(directoryStack.size() > 1);
+        List<Entry> entries = list(currentDirectoryUri);
         Collections.sort(entries, Comparator.comparing((Entry e) -> !e.directory).thenComparing(e -> e.name.toLowerCase()));
-        for (Entry e : entries) {
-            if (e.directory) addDirectory(e.uri, e.name, depth + 1);
-            else if (isReadableText(e.name)) addFile(e, depth + 1);
+        for (Entry entry : entries) {
+            if (entry.directory) addDirectory(entry);
+            else if (isReadableText(entry.name)) addFile(entry);
         }
     }
-    private void addFile(Entry e, int depth) {
-        TextView item = label("·  " + e.name, 14, Color.rgb(170,170,170)); item.setSingleLine(true); item.setPadding(dp(depth * 14 + 30), 0, dp(6), 0); item.setGravity(Gravity.CENTER_VERTICAL); item.setMinHeight(dp(40));
-        item.setOnClickListener(v -> openFile(e)); tree.addView(item);
+    private void navigateUp() {
+        if (directoryStack.size() <= 1) return;
+        directoryStack.remove(directoryStack.size() - 1);
+        currentDirectoryUri = directoryStack.get(directoryStack.size() - 1);
+        refreshTree();
+    }
+    private void addDirectory(Entry entry) {
+        TextView item = label("> " + entry.name, compactSidebar ? 12 : 14, Color.rgb(205,205,205));
+        item.setSingleLine(true); item.setPadding(dp(6), 0, dp(4), 0); item.setGravity(Gravity.CENTER_VERTICAL); item.setMinHeight(dp(compactSidebar ? 34 : 40));
+        item.setOnClickListener(v -> {
+            currentDirectoryUri = entry.uri;
+            directoryStack.add(entry.uri);
+            refreshTree();
+        });
+        tree.addView(item);
+    }
+    private void addFile(Entry entry) {
+        TextView item = label(entry.name, compactSidebar ? 12 : 14, Color.rgb(170,170,170));
+        item.setSingleLine(true); item.setPadding(dp(10), 0, dp(4), 0); item.setGravity(Gravity.CENTER_VERTICAL); item.setMinHeight(dp(compactSidebar ? 32 : 38));
+        item.setOnClickListener(v -> openFile(entry)); tree.addView(item);
     }
     private void openFile(Entry e) {
         try {
@@ -131,12 +159,12 @@ public class MainActivity extends Activity {
     private List<Entry> list(Uri directory) {
         List<Entry> out = new ArrayList<>();
         try {
-            String id = DocumentsContract.getTreeDocumentId(directory);
-            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(directory, id);
+            String id = directory.equals(rootUri) ? DocumentsContract.getTreeDocumentId(rootUri) : DocumentsContract.getDocumentId(directory);
+            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, id);
             android.database.Cursor c = getContentResolver().query(children, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
             if (c != null) { while (c.moveToNext()) {
                 String childId = c.getString(0), name = c.getString(1), mime = c.getString(2);
-                Uri childUri = DocumentsContract.buildDocumentUriUsingTree(directory, childId);
+                Uri childUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, childId);
                 out.add(new Entry(childUri, name == null ? "(unnamed)" : name, DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)));
             } c.close(); }
         } catch (Exception ignored) { }
