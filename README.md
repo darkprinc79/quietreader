@@ -1,5 +1,3 @@
-https://github.com/darkprinc79/quietreader/blob/main/quietreader.png
-
 
 # Quiet Reader
 
