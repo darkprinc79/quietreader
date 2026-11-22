@@ -1,4 +1,5 @@
 screenshots/Screenshot_20261122_162618.jpg
+
 screenshots/quietreader.png
 # Quiet Reader
 
