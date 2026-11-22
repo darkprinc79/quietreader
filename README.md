@@ -8,7 +8,8 @@ Quiet Reader is a text reader for Android 5.0 and later, Windows, and Linux. The
 ## Android compatibility
 
 - Minimum Android version: 5.0 (API 21)
-- The two-pane layout is intended for tablets and can also run on phones.
+- The two-pane layout is intended for tablets and can also run on phones. Android shows the selected folder's immediate subfolders and readable text files; it does not recursively expand the whole directory tree.
+- Android folder scans run in the background and the sidebar adds up to 200 rows at a time. A previously selected folder is not scanned automatically at startup; tap Open and choose “Resume last folder” to load it.
 - Folder access is granted through Android's Storage Access Framework; the app does not request broad storage permissions.
 
 ## Build

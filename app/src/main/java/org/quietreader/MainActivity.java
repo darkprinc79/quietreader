@@ -2,6 +2,7 @@ package org.quietreader;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.os.AsyncTask;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -44,6 +45,10 @@ public class MainActivity extends Activity {
     private int textColor, textSize;
     private boolean compactSidebar;
     private int pad;
+    private List<Entry> visibleEntries = new ArrayList<>();
+    private int displayedEntryCount;
+    private int refreshGeneration;
+    private static final int ROWS_PER_PAGE = 200;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -58,8 +63,8 @@ public class MainActivity extends Activity {
             directoryStack.add(rootUri);
         }
         buildUi();
-        if (rootUri != null) refreshTree();
-        else showWelcome();
+        showWelcome();
+        if (rootUri != null) folderLabel.setText("Last folder saved — tap Open to load");
     }
 
     private void buildUi() {
@@ -72,7 +77,7 @@ public class MainActivity extends Activity {
         LinearLayout top = new LinearLayout(this); top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
         Button choose = button(compactSidebar ? "Open" : "Open folder");
         choose.setContentDescription("Choose library folder");
-        choose.setOnClickListener(v -> pickFolder());
+        choose.setOnClickListener(v -> openFolderMenu());
         upButton = button("Up");
         upButton.setOnClickListener(v -> navigateUp());
         top.addView(choose, new LinearLayout.LayoutParams(0, dp(42), 1));
@@ -98,6 +103,18 @@ public class MainActivity extends Activity {
     }
 
     private void showWelcome() { title.setText("Quiet Reader"); page.setText("Choose a folder, then select a text file from the library.\n\nText files (.txt) and files without an extension are supported."); }
+    private void openFolderMenu() {
+        if (rootUri == null) { pickFolder(); return; }
+        new AlertDialog.Builder(this).setTitle("Open a folder")
+            .setItems(new String[]{"Resume last folder", "Choose another folder"}, (dialog, which) -> {
+                if (which == 0) {
+                    currentDirectoryUri = rootUri;
+                    directoryStack.clear();
+                    directoryStack.add(rootUri);
+                    refreshTree();
+                } else pickFolder();
+            }).show();
+    }
     private void pickFolder() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -116,16 +133,52 @@ public class MainActivity extends Activity {
         }
     }
     private void refreshTree() {
-        tree.removeAllViews();
         if (rootUri == null) return;
         if (currentDirectoryUri == null) currentDirectoryUri = rootUri;
-        folderLabel.setText(displayName(currentDirectoryUri));
+        final int generation = ++refreshGeneration;
+        final Uri directory = currentDirectoryUri;
+        tree.removeAllViews();
+        folderLabel.setText("Loading folder…");
         upButton.setEnabled(directoryStack.size() > 1);
-        List<Entry> entries = list(currentDirectoryUri);
-        Collections.sort(entries, Comparator.comparing((Entry e) -> !e.directory).thenComparing(e -> e.name.toLowerCase()));
-        for (Entry entry : entries) {
+        visibleEntries.clear();
+        displayedEntryCount = 0;
+        TextView loading = label("Loading folder…", compactSidebar ? 12 : 14, Color.LTGRAY);
+        tree.addView(loading);
+        new AsyncTask<Void, Void, List<Entry>>() {
+            @Override protected List<Entry> doInBackground(Void... ignored) {
+                try {
+                    List<Entry> entries = list(directory);
+                    Collections.sort(entries, Comparator.comparing((Entry e) -> !e.directory).thenComparing(e -> e.name.toLowerCase()));
+                    return entries;
+                } catch (Exception e) { return null; }
+            }
+            @Override protected void onPostExecute(List<Entry> entries) {
+                if (generation != refreshGeneration || isFinishing()) return;
+                tree.removeAllViews();
+                if (entries == null) {
+                    folderLabel.setText("Could not load folder");
+                    tree.addView(label("Folder could not be read. Choose it again or try a smaller folder.", compactSidebar ? 12 : 14, Color.LTGRAY));
+                    return;
+                }
+                folderLabel.setText(displayName(directory));
+                visibleEntries = entries;
+                showNextPage();
+                if (visibleEntries.isEmpty()) tree.addView(label("No readable text files or folders.", compactSidebar ? 12 : 14, Color.LTGRAY));
+            }
+        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    }
+    private void showNextPage() {
+        int end = Math.min(displayedEntryCount + ROWS_PER_PAGE, visibleEntries.size());
+        for (int i = displayedEntryCount; i < end; i++) {
+            Entry entry = visibleEntries.get(i);
             if (entry.directory) addDirectory(entry);
-            else if (isReadableText(entry.name)) addFile(entry);
+            else addFile(entry);
+        }
+        displayedEntryCount = end;
+        if (displayedEntryCount < visibleEntries.size()) {
+            Button more = button("Show next " + Math.min(ROWS_PER_PAGE, visibleEntries.size() - displayedEntryCount) + " items");
+            more.setOnClickListener(v -> { tree.removeView(more); showNextPage(); });
+            tree.addView(more);
         }
     }
     private void navigateUp() {
@@ -156,22 +209,25 @@ public class MainActivity extends Activity {
             title.setText(e.name); page.setText(b.toString()); page.setTextSize(textSize); page.setTextColor(textColor); readerScroll.scrollTo(0,0);
         } catch (Exception ex) { Toast.makeText(this, "Could not open this file", Toast.LENGTH_SHORT).show(); }
     }
-    private List<Entry> list(Uri directory) {
+    private List<Entry> list(Uri directory) throws Exception {
         List<Entry> out = new ArrayList<>();
-        try {
-            String id = directory.equals(rootUri) ? DocumentsContract.getTreeDocumentId(rootUri) : DocumentsContract.getDocumentId(directory);
-            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, id);
-            android.database.Cursor c = getContentResolver().query(children, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
+        String id = directory.equals(rootUri) ? DocumentsContract.getTreeDocumentId(rootUri) : DocumentsContract.getDocumentId(directory);
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, id);
+        try (android.database.Cursor c = getContentResolver().query(children, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null)) {
             if (c != null) { while (c.moveToNext()) {
                 String childId = c.getString(0), name = c.getString(1), mime = c.getString(2);
-                Uri childUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, childId);
-                out.add(new Entry(childUri, name == null ? "(unnamed)" : name, DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)));
-            } c.close(); }
-        } catch (Exception ignored) { }
+                boolean isDirectory = DocumentsContract.Document.MIME_TYPE_DIR.equals(mime);
+                String displayName = name == null ? "(unnamed)" : name;
+                if (isDirectory || isReadableText(displayName)) {
+                    Uri childUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, childId);
+                    out.add(new Entry(childUri, displayName, isDirectory));
+                }
+            } }
+        }
         return out;
     }
     private String displayName(Uri uri) {
-        try { android.database.Cursor c = getContentResolver().query(uri, new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null,null,null); if (c != null && c.moveToFirst()) { String n=c.getString(0); c.close(); return n; } } catch(Exception ignored) { }
+        try (android.database.Cursor c = getContentResolver().query(uri, new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null,null,null)) { if (c != null && c.moveToFirst()) { String n=c.getString(0); return n; } } catch(Exception ignored) { }
         return "Selected folder";
     }
     private boolean isReadableText(String name) { int dot = name.lastIndexOf('.'); return dot < 0 || name.substring(dot).equalsIgnoreCase(".txt"); }
@@ -182,7 +238,10 @@ public class MainActivity extends Activity {
         size.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() { public void onStartTrackingTouch(android.widget.SeekBar b){} public void onStopTrackingTouch(android.widget.SeekBar b){} public void onProgressChanged(android.widget.SeekBar b,int p,boolean u){ textSize=12+p; sizeLabel.setText("Text size: "+textSize+" sp"); page.setTextSize(textSize); } });
         TextView colorLabel = label("Text color", 16, Color.WHITE); colorLabel.setPadding(0,pad/2,0,0); box.addView(colorLabel);
         LinearLayout colors = new LinearLayout(this); colors.setOrientation(LinearLayout.HORIZONTAL);
-        addColor(colors, "Dim", Color.rgb(190,190,190)); addColor(colors, "White", Color.WHITE); addColor(colors, "Warm", Color.rgb(238,220,185)); addColor(colors, "Green", Color.rgb(185,215,190)); box.addView(colors);
+        addColor(colors, "Dim", Color.rgb(190,190,190)); addColor(colors, "White", Color.WHITE); addColor(colors, "Warm", Color.rgb(238,220,185)); addColor(colors, "Green", Color.rgb(185,215,190));
+        LinearLayout extraColors = new LinearLayout(this); extraColors.setOrientation(LinearLayout.HORIZONTAL);
+        addColor(extraColors, "Matrix", Color.rgb(0,255,65)); addColor(extraColors, "Blue", Color.rgb(80,150,255)); addColor(extraColors, "Turquoise", Color.rgb(64,224,208));
+        box.addView(colors); box.addView(extraColors);
         new AlertDialog.Builder(this).setTitle("Reading appearance").setView(box).setPositiveButton("Done", (d,w) -> getPreferences(0).edit().putInt("size",textSize).putInt("color",textColor).apply()).show();
     }
     private void addColor(LinearLayout row, String name, int color) { Button b = button(name); b.setTextColor(color); b.setOnClickListener(v -> { textColor=color; page.setTextColor(color); }); row.addView(b, new LinearLayout.LayoutParams(0,dp(48),1)); }
