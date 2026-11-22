@@ -8,6 +8,8 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.DocumentsContract;
 import android.view.Gravity;
 import android.view.View;
@@ -37,8 +39,13 @@ public class MainActivity extends Activity {
 
     private LinearLayout tree, sidebar;
     private TextView page, title, folderLabel;
-    private Button upButton;
+    private TextView pagePosition;
+    private Button upButton, menuButton;
+    private Button previousPageButton, nextPageButton;
+    private View divider;
     private ScrollView readerScroll;
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private final Runnable hideSidebarRunnable = () -> setSidebarVisible(false);
     private Uri rootUri;
     private Uri currentDirectoryUri;
     private final List<Uri> directoryStack = new ArrayList<>();
@@ -48,7 +55,12 @@ public class MainActivity extends Activity {
     private List<Entry> visibleEntries = new ArrayList<>();
     private int displayedEntryCount;
     private int refreshGeneration;
-    private static final int ROWS_PER_PAGE = 200;
+    private int fileOpenGeneration;
+    private Uri currentFileUri;
+    private int currentPageStart;
+    private boolean hasNextPage;
+    private static final int ROWS_PER_PAGE = 50;
+    private static final int READER_PAGE_CHARS = 20000;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -88,21 +100,35 @@ public class MainActivity extends Activity {
         sidebar.addView(folderLabel, new LinearLayout.LayoutParams(-1, dp(32)));
         ScrollView treeScroll = new ScrollView(this); tree = new LinearLayout(this); tree.setOrientation(LinearLayout.VERTICAL); treeScroll.addView(tree);
         sidebar.addView(treeScroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        View divider = new View(this); divider.setBackgroundColor(Color.rgb(55,55,55));
+        divider = new View(this); divider.setBackgroundColor(Color.rgb(55,55,55));
         LinearLayout content = new LinearLayout(this); content.setOrientation(LinearLayout.VERTICAL); content.setBackgroundColor(BG);
         LinearLayout toolbar = new LinearLayout(this); toolbar.setOrientation(LinearLayout.HORIZONTAL); toolbar.setGravity(Gravity.CENTER_VERTICAL); toolbar.setPadding(pad, pad/2, pad, pad/2);
         title = label("Quiet Reader", 18, Color.WHITE); title.setTypeface(null, Typeface.BOLD);
         Button appearance = button("Aa"); appearance.setOnClickListener(v -> appearanceDialog());
         toolbar.addView(title, new LinearLayout.LayoutParams(0, -2, 1)); toolbar.addView(appearance);
+        menuButton = button("☰"); menuButton.setContentDescription("Hide directory list"); menuButton.setOnClickListener(v -> setSidebarVisible(sidebar.getVisibility() != View.VISIBLE));
+        toolbar.addView(menuButton);
+        LinearLayout readerNavigation = new LinearLayout(this); readerNavigation.setGravity(Gravity.CENTER_VERTICAL);
+        previousPageButton = button("Previous"); previousPageButton.setEnabled(false); previousPageButton.setOnClickListener(v -> { currentPageStart = Math.max(0, currentPageStart - READER_PAGE_CHARS); loadReaderPage(); });
+        pagePosition = label("", 12, Color.LTGRAY); pagePosition.setGravity(Gravity.CENTER);
+        nextPageButton = button("Next"); nextPageButton.setEnabled(false); nextPageButton.setOnClickListener(v -> { if (hasNextPage) { currentPageStart += READER_PAGE_CHARS; loadReaderPage(); } });
+        readerNavigation.addView(previousPageButton, new LinearLayout.LayoutParams(0, dp(44), 1));
+        readerNavigation.addView(pagePosition, new LinearLayout.LayoutParams(0, dp(44), 1));
+        readerNavigation.addView(nextPageButton, new LinearLayout.LayoutParams(0, dp(44), 1));
         readerScroll = new ScrollView(this); readerScroll.setFillViewport(true);
         page = label("Choose a folder, then select a text file from the library.", textSize, textColor); page.setGravity(Gravity.TOP | Gravity.START); page.setPadding(pad * 2, pad, pad * 2, pad * 2); page.setTextIsSelectable(true); page.setTextSize(textSize);
         readerScroll.addView(page);
-        content.addView(toolbar); content.addView(readerScroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        content.addView(toolbar); content.addView(readerNavigation); content.addView(readerScroll, new LinearLayout.LayoutParams(-1, 0, 1));
         root.addView(sidebar, new LinearLayout.LayoutParams(dp(sidebarWidthDp), -1)); root.addView(divider, new LinearLayout.LayoutParams(dp(1), -1)); root.addView(content, new LinearLayout.LayoutParams(0, -1, 1));
         setContentView(root);
     }
 
     private void showWelcome() { title.setText("Quiet Reader"); page.setText("Choose a folder, then select a text file from the library.\n\nText files (.txt) and files without an extension are supported."); }
+    private void setSidebarVisible(boolean visible) {
+        sidebar.setVisibility(visible ? View.VISIBLE : View.GONE);
+        divider.setVisibility(visible ? View.VISIBLE : View.GONE);
+        menuButton.setContentDescription(visible ? "Hide directory list" : "Show directory list");
+    }
     private void openFolderMenu() {
         if (rootUri == null) { pickFolder(); return; }
         new AlertDialog.Builder(this).setTitle("Open a folder")
@@ -160,7 +186,7 @@ public class MainActivity extends Activity {
                     tree.addView(label("Folder could not be read. Choose it again or try a smaller folder.", compactSidebar ? 12 : 14, Color.LTGRAY));
                     return;
                 }
-                folderLabel.setText(displayName(directory));
+                folderLabel.setText("Selected folder • " + entries.size() + " items");
                 visibleEntries = entries;
                 showNextPage();
                 if (visibleEntries.isEmpty()) tree.addView(label("No readable text files or folders.", compactSidebar ? 12 : 14, Color.LTGRAY));
@@ -203,11 +229,57 @@ public class MainActivity extends Activity {
         item.setOnClickListener(v -> openFile(entry)); tree.addView(item);
     }
     private void openFile(Entry e) {
-        try {
-            BufferedReader reader = new BufferedReader(new InputStreamReader(getContentResolver().openInputStream(e.uri), "UTF-8"));
-            StringBuilder b = new StringBuilder(); String line; while ((line = reader.readLine()) != null) b.append(line).append('\n'); reader.close();
-            title.setText(e.name); page.setText(b.toString()); page.setTextSize(textSize); page.setTextColor(textColor); readerScroll.scrollTo(0,0);
-        } catch (Exception ex) { Toast.makeText(this, "Could not open this file", Toast.LENGTH_SHORT).show(); }
+        uiHandler.removeCallbacks(hideSidebarRunnable);
+        ++fileOpenGeneration;
+        currentFileUri = e.uri;
+        currentPageStart = 0;
+        hasNextPage = false;
+        title.setText(e.name);
+        page.setText("Loading file…");
+        previousPageButton.setEnabled(false); nextPageButton.setEnabled(false); pagePosition.setText("Loading…");
+        loadReaderPage();
+    }
+    private void loadReaderPage() {
+        if (currentFileUri == null) return;
+        final int generation = ++fileOpenGeneration;
+        final Uri fileUri = currentFileUri;
+        final int start = currentPageStart;
+        previousPageButton.setEnabled(false); nextPageButton.setEnabled(false); pagePosition.setText("Loading…");
+        new AsyncTask<Void, Void, PageData>() {
+            @Override protected PageData doInBackground(Void... ignored) {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(getContentResolver().openInputStream(fileUri), "UTF-8"))) {
+                    long remaining = start;
+                    while (remaining > 0) {
+                        long skipped = reader.skip(remaining);
+                        if (skipped == 0) { if (reader.read() == -1) break; skipped = 1; }
+                        remaining -= skipped;
+                    }
+                    StringBuilder contents = new StringBuilder(READER_PAGE_CHARS);
+                    char[] buffer = new char[4096];
+                    while (contents.length() < READER_PAGE_CHARS) {
+                        int count = reader.read(buffer, 0, Math.min(buffer.length, READER_PAGE_CHARS - contents.length()));
+                        if (count == -1) break;
+                        contents.append(buffer, 0, count);
+                    }
+                    boolean more = reader.read() != -1;
+                    return new PageData(contents.toString(), more);
+                } catch (Exception ex) { return null; }
+            }
+            @Override protected void onPostExecute(PageData result) {
+                if (generation != fileOpenGeneration || isFinishing()) return;
+                if (result == null) {
+                    page.setText("Could not open this file."); pagePosition.setText("");
+                    Toast.makeText(MainActivity.this, "Could not open this file", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                page.setText(result.text); page.setTextSize(textSize); page.setTextColor(textColor); readerScroll.scrollTo(0,0);
+                hasNextPage = result.hasMore;
+                previousPageButton.setEnabled(currentPageStart > 0);
+                nextPageButton.setEnabled(hasNextPage);
+                pagePosition.setText("Characters " + (currentPageStart + 1) + "–" + (currentPageStart + result.text.length()));
+                uiHandler.postDelayed(hideSidebarRunnable, 2000);
+            }
+        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
     private List<Entry> list(Uri directory) throws Exception {
         List<Entry> out = new ArrayList<>();
@@ -225,10 +297,6 @@ public class MainActivity extends Activity {
             } }
         }
         return out;
-    }
-    private String displayName(Uri uri) {
-        try (android.database.Cursor c = getContentResolver().query(uri, new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null,null,null)) { if (c != null && c.moveToFirst()) { String n=c.getString(0); return n; } } catch(Exception ignored) { }
-        return "Selected folder";
     }
     private boolean isReadableText(String name) { int dot = name.lastIndexOf('.'); return dot < 0 || name.substring(dot).equalsIgnoreCase(".txt"); }
     private void appearanceDialog() {
@@ -249,4 +317,5 @@ public class MainActivity extends Activity {
     private Button button(String s) { Button b = new Button(this); b.setText(s); b.setTextSize(13); return b; }
     private int dp(int value) { return (int)(value*getResources().getDisplayMetrics().density+0.5f); }
     private static class Entry { final Uri uri; final String name; final boolean directory; Entry(Uri u,String n,boolean d){uri=u;name=n;directory=d;} }
+    private static class PageData { final String text; final boolean hasMore; PageData(String t, boolean m){text=t;hasMore=m;} }
 }
